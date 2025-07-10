@@ -12,47 +12,6 @@
 
 using namespace std;
 
-vector<float> GetDPhi(const char* inFileName, string inTreeName, const char* branchName = "jtphi"){
-
-    float phi1;
-    float phi2;
-    float dphi;
-    float pi = TMath::Pi();
-    int nref;
-    Float_t jtphi[100];
-    vector<float> jtdphi = {};
-
-    TFile* inFile = new TFile(inFileName,"READ");
-    if (!inFile || inFile->IsZombie()) {
-        cout << "Error: Could not open the file!" << endl;
-    }
-
-    TTree* Tree = (TTree*)inFile->Get(inTreeName.c_str());
-    Tree->SetBranchAddress(branchName,jtphi);
-    Tree->SetBranchAddress("nref",&nref);
-
-    for (int i = 0; i < Tree->GetEntries(); i++){
-        Tree->GetEntry(i);
-        phi1 = jtphi[0];
-        phi2 = jtphi[1];
-        dphi = phi1 - phi2;
-        if (nref <= 2) {
-            jtdphi.push_back(-999);  // or continue
-            continue;
-        }
-        if (pi <= dphi && dphi <= 2 * pi){
-            dphi = (dphi - 2*pi);
-        }
-        else if (-2*pi <= dphi && dphi <= -pi){
-            dphi = dphi + 2*pi;
-        }
-        dphi = TMath::Abs(dphi);
-        jtdphi.push_back(dphi);
-    }
-    inFile->Close();
-    delete inFile;
-    return jtdphi;
-}
 
 void DrawSelectionLatex(double x = 0.6, double y = 0.2, double dy = 0.05) {
     TLatex latex;
@@ -72,9 +31,14 @@ void DrawSelectionLatex(double x = 0.6, double y = 0.2, double dy = 0.05) {
 int run() {
     string ForestFolder = "/eos/cms/store/group/phys_heavyions/jdlang/Run3_OO_2025Data_QuickForest/";
     vector<string> ForestSubfolder = {
-        "OO_394153_PhysicsIonPhysics0_Prompt_v3/crab_OO_394153_PhysicsIonPhysics0_Prompt_v3/250706_213337/0000/",
-        "OO_394153_PhysicsIonPhysics2_Prompt_v3/crab_OO_394153_PhysicsIonPhysics2_Prompt_v3/250706_213442/0000/",
-        "OO_394153_PhysicsIonPhysics4_Prompt_v3/crab_OO_394153_PhysicsIonPhysics4_Prompt_v3/250706_213505/0000/",
+        "OO_394153_PhysicsIonPhysics0/crab_OO_394153_PhysicsIonPhysics0/250705_074244/0000/",
+        "OO_394153_PhysicsIonPhysics1/crab_OO_394153_PhysicsIonPhysics1/250706_211559/0000/",
+        "OO_394153_PhysicsIonPhysics2/crab_OO_394153_PhysicsIonPhysics2/250705_074258/0000/",
+        "OO_394153_PhysicsIonPhysics3/crab_OO_394153_PhysicsIonPhysics3/250706_211618/0000/",
+        "OO_394153_PhysicsIonPhysics4/crab_OO_394153_PhysicsIonPhysics4/250705_072449/0000/",
+        "OO_394153_PhysicsIonPhysics5/crab_OO_394153_PhysicsIonPhysics5/250706_211632/0000/",
+        "OO_394153_PhysicsIonPhysics6/crab_OO_394153_PhysicsIonPhysics6/250705_120227/0000/",
+        "OO_394153_PhysicsIonPhysics8/crab_OO_394153_PhysicsIonPhysics8/250705_120244/0000/",
         "OO_394154_PhysicsIonPhysics0/crab_OO_394154_PhysicsIonPhysics0/250705_130926/0000/",
         "OO_394154_PhysicsIonPhysics5/crab_OO_394154_PhysicsIonPhysics5/250706_211713/0000/",
         "OO_394169_PhysicsIonPhysics0/crab_OO_394169_PhysicsIonPhysics0/250706_210830/0000/",
@@ -84,17 +48,22 @@ int run() {
     string JetAnalyserTreeString = "ak0PFJetAnalyzer/t";
     string HFAdcanalyserTreeString = "HFAdcana/adc";
     string SkimTreeString = "skimanalysis/HltTree";
-
+    float pi = TMath::Pi();
     float jtpt1 = -1;
     float jtpt2 = -1;
+    float phi1;
+    float phi2;
     float A_J = 0;
     vector<float>* zVtx = nullptr;
     vector<float>* ptSumVtx = nullptr;
     vector<bool>* highPurity = nullptr;
     vector<float>* trackEta = nullptr;
+    vector<float>* trackPhi = nullptr;
 
     Float_t jtpt[50];
     Float_t jteta[50];
+    Float_t jtphi[50];
+
     int nref = 0;
     int BestVertex = -1;
     int PVFilter, CCFilter,nVtx,nTrk;
@@ -110,27 +79,30 @@ int run() {
         "HiForestMiniAOD_AJ_lynntest.png",
         30, 0, 1, 0, 100};
 
+    TFile* outFile_p = new TFile("myOutFile2.root", "RECREATE");
+
     TCanvas* canvas = new TCanvas("c", "canvas", 800, 600);
-    TH1F hjtpt1("hjtpt1", "jtpt1", 100, 0, 500);
-    TH1F hNtrk("hNtrk", "Number of Tracks (highPurity)", 100, 0, 1500);
-    TH1F hNtrkOriginal("hNtrkOriginal", "Number of Tracks (original)", 100, 0, 1500);
-    TH1F h_highntrk("h_highntrk", "Jet A_{J} of OO Sample (ntrk > 400)", hvar.nbin, hvar.xmin, hvar.xmax);
-    TH1F h_lowntrk("h_lowntrk", "Jet A_{J} of OO Sample (ntrk < 200)", hvar.nbin, hvar.xmin, hvar.xmax);
-    TH1F h_midntrk("h_midntrk", "Jet A_{J} of OO Sample (200 < ntrk < 00)", hvar.nbin, hvar.xmin, hvar.xmax);
+    TH1F* hjtpt1 = new TH1F("hjtpt1", "jtpt1", 100, 0, 500);
+    TH1F* hNtrk = new TH1F("hNtrk", "Number of Tracks (highPurity)", 100, 0, 1500);
+    TH1F* hNtrkOriginal = new TH1F("hNtrkOriginal", "Number of Tracks (original)", 100, 0, 1500);
+    TH1F* h_highntrk = new TH1F("h_highntrk", "Jet A_{J} of OO Sample (ntrk > 400)", hvar.nbin, hvar.xmin, hvar.xmax);
+    TH1F* h_lowntrk = new TH1F("h_lowntrk", "Jet A_{J} of OO Sample (ntrk < 200)", hvar.nbin, hvar.xmin, hvar.xmax);
+    TH1F* h_midntrk = new TH1F("h_midntrk", "Jet A_{J} of OO Sample (200 < ntrk < 400)", hvar.nbin, hvar.xmin, hvar.xmax);
 
-    hjtpt1.SetDirectory(0);
-    hNtrk.SetDirectory(0);
-    hNtrkOriginal.SetDirectory(0);
-    h_highntrk.SetDirectory(0);
-    h_lowntrk.SetDirectory(0);
-    h_midntrk.SetDirectory(0);
 
-    for(string subfolder : ForestSubfolder) {
+    for(int subfolderIndex = 0; subfolderIndex < ForestSubfolder.size(); subfolderIndex++) {
+        string subfolder = ForestSubfolder[subfolderIndex];
         string inputFileFolder = ForestFolder + subfolder;
-        cout << "Processing subfolder: " << subfolder << endl;
+        cout << "Processing subfolder " << subfolderIndex << ": " << subfolder << endl;
         for(int i = 1; i < 120; i++){
             bool etaCut = false;
             bool highPurityBool = true;
+            hjtpt1->SetDirectory(0);
+            hNtrk->SetDirectory(0);
+            hNtrkOriginal->SetDirectory(0);
+            h_highntrk->SetDirectory(0);
+            h_lowntrk->SetDirectory(0);
+            h_midntrk->SetDirectory(0);
 
             string inputFileName = inputFileFolder + Form("HiForestMiniAOD_%i.root",i);
             TFile* inFile = new TFile(inputFileName.c_str(),"READ");
@@ -139,12 +111,35 @@ int run() {
                 break;
             }
 
-            cout << "Processing file: " << i << endl;
+            cout << "Processing file: " << inputFileName << endl;
             
             TTree* JetAnalyserTree = (TTree*)inFile->Get(JetAnalyserTreeString.c_str());
             TTree* HFAdcanaTree = (TTree*)inFile->Get(HFAdcanalyserTreeString.c_str());
             TTree* SkimTree = (TTree*)inFile->Get(SkimTreeString.c_str());
             TTree* PPTracksTree = (TTree*)inFile->Get("ppTracks/trackTree");
+
+            if (!JetAnalyserTree || !HFAdcanaTree || !SkimTree || !PPTracksTree) {
+                cout << "Error: One or more TTrees not found in file " << inputFileName << endl;
+                inFile->Close();
+                delete inFile;
+                break; // or break;
+            }       
+
+            SkimTree->SetBranchStatus("*", 0);
+            SkimTree->SetBranchStatus("pprimaryVertexFilter",1);
+            SkimTree->SetBranchStatus("pclusterCompatibilityFilter",1);
+            PPTracksTree->SetBranchStatus("nVtx",1);
+            PPTracksTree->SetBranchStatus("zVtx",1);
+            PPTracksTree->SetBranchStatus("ptSumVtx",1);
+            PPTracksTree->SetBranchStatus("nTrk",1);
+            PPTracksTree->SetBranchStatus("trkEta",1);
+            PPTracksTree->SetBranchStatus("highPurity",1);
+            HFAdcanaTree->SetBranchStatus("mMaxL1HFAdcPlus",1);
+            HFAdcanaTree->SetBranchStatus("mMaxL1HFAdcMinus",1);
+            JetAnalyserTree->SetBranchStatus("nref",1);
+            JetAnalyserTree->SetBranchStatus("jtpt",1);
+            JetAnalyserTree->SetBranchStatus("jteta",1);
+            JetAnalyserTree->SetBranchStatus("jtphi",1);
 
             SkimTree->SetBranchAddress("pprimaryVertexFilter",&PVFilter);
             SkimTree->SetBranchAddress("pclusterCompatibilityFilter",&CCFilter);
@@ -159,10 +154,10 @@ int run() {
             JetAnalyserTree->SetBranchAddress("nref",&nref);
             JetAnalyserTree->SetBranchAddress("jtpt",jtpt);
             JetAnalyserTree->SetBranchAddress("jteta",jteta);
+            JetAnalyserTree->SetBranchAddress("jtphi",jtphi);
 
             Long64_t nEntries = JetAnalyserTree->GetEntries();
-            vector<float> DphiVector = GetDPhi(inputFileName.c_str(),JetAnalyserTreeString);
-            float dPhi = 0;
+            float dphi = 0;
             int nTrkNew = 0;
             for (Long64_t entrynum = 0; entrynum < nEntries; entrynum++){
                 JetAnalyserTree->GetEntry(entrynum);
@@ -175,10 +170,20 @@ int run() {
                 jtpt1 = jtpt[0];
                 jtpt2 = jtpt[1];
                 A_J = (jtpt1-jtpt2)/(jtpt1+jtpt2);
-                dPhi = DphiVector.at(entrynum);
+
+                phi1 = jtphi[0];
+                phi2 = jtphi[1];
+                dphi = phi1 - phi2;
+                if (pi <= dphi && dphi <= 2 * pi){
+                    dphi = (dphi - 2*pi);
+                }
+                else if (-2*pi <= dphi && dphi <= -pi){
+                    dphi = dphi + 2*pi;
+                }
+                dphi = TMath::Abs(dphi);
 
                 //h1.Fill(A_J);
-                hjtpt1.Fill(jtpt1);
+                hjtpt1->Fill(jtpt1);
 
                 BestVertex = -1;
                 for (int vertexnum = 0; vertexnum < nVtx; vertexnum++) {
@@ -207,28 +212,36 @@ int run() {
                         jetcount++;
                     }
                 }
-                hNtrk.Fill(nTrkNew);
-                hNtrkOriginal.Fill(nTrk); // Fill the original number of tracks
+                hNtrk->Fill(nTrkNew);
+                hNtrkOriginal->Fill(nTrk); // Fill the original number of tracks
                 if (!etaCut) continue; // Apply eta cut
                 if (PVFilter != 1 || CCFilter != 1 || fabs(VZ) >= 15 || nVtx <= 0) continue;
                 if (mMaxL1HFAdcMinus < 14 && mMaxL1HFAdcPlus < 14) continue;
                 if (jtpt1 < 50) continue;
                 if (jtpt2 < 30) continue; // Apply jet pt cuts
-                if (dPhi < (5.0/6) * TMath::Pi()) continue; // Apply dPhi cut
+                if (dphi < (5.0/6) * TMath::Pi()) continue; // Apply dPhi cut
+
                 numberOfEventsWithAJ++;
                 cout << "Event num: " << entrynum 
-                    << ", dPhi: " << dPhi 
+                    << ", dPhi: " << dphi 
                     << ", A_J: " << A_J 
                     << ", jtpt1: " << jtpt1 
                     << ", jtpt2: " << jtpt2 << endl;
                     if (nTrkNew > 400) {
-                        h_highntrk.Fill(A_J); // Fill the histogram for events with nTrk > 600
+                        h_highntrk->Fill(A_J); // Fill the histogram for events with nTrk > 600
                     } else if (nTrkNew < 400 && nTrkNew > 200) {
-                        h_midntrk.Fill(A_J); // Fill the histogram for events with nTrk < 600 and > 200
+                        h_midntrk->Fill(A_J); // Fill the histogram for events with nTrk < 600 and > 200
                     } else {
-                        h_lowntrk.Fill(A_J); // Fill the histogram for events with nTrk
+                        h_lowntrk->Fill(A_J); // Fill the histogram for events with nTrk
                     }
             }
+            outFile_p->cd();
+            h_highntrk->Write();
+            h_lowntrk->Write();
+            h_midntrk->Write();
+            hNtrk->Write();
+            hNtrkOriginal->Write();
+            hjtpt1->Write();
             cout << "Closing file: " << i << endl;
             inFile->Close();
             delete inFile;
@@ -251,57 +264,65 @@ int run() {
 
     }
     cout << "Total number of jets with pt > 45 GeV FINAL: " << jetcount << endl;
-    gStyle->SetOptStat(0); // Disable statistics box
+    outFile_p->cd();
+    hjtpt1->Write();
+    hNtrk->Write();
+    hNtrkOriginal->Write();
+    h_highntrk->Write();
+    h_lowntrk->Write();
+    h_midntrk->Write();
+    outFile_p->Close();
+
+   /* gStyle->SetOptStat(0); // Disable statistics box
 
     TCanvas* c_jtpt = new TCanvas("c_jtpt", "c_jtpt", 800, 600);
-    hjtpt1.SetLineColor(kBlue+1);
-    hjtpt1.SetLineWidth(2);
-    hjtpt1.Draw("HIST");
-    hjtpt1.SetXTitle("Leading jtpt (GeV/c)");
+    hjtpt1->SetLineColor(kBlue+1);
+    hjtpt1->SetLineWidth(2);
+    hjtpt1->Draw("HIST");
+    hjtpt1->SetXTitle("Leading jtpt (GeV/c)");
 
     canvas->cd();
     DrawSelectionLatex();
 
-        TCanvas* c_ntrk = new TCanvas("c_ntrk", "c_ntrk", 800, 600);
-        hNtrk.Draw("HIST");
-        hNtrkOriginal.Draw("HIST SAME"); 
-        hNtrk.SetLineColor(kRed);
-        hNtrkOriginal.SetLineColor(kBlack);
-        hNtrk.SetLineWidth(2);
-        hNtrkOriginal.SetLineWidth(2);
-        gStyle->SetOptStat(0); // Disable statistics box
+    TCanvas* c_ntrk = new TCanvas("c_ntrk", "c_ntrk", 800, 600);
+    hNtrk->Draw("HIST");
+    hNtrkOriginal->Draw("HIST SAME"); 
+    hNtrk->SetLineColor(kRed);
+    hNtrkOriginal->SetLineColor(kBlack);
+    hNtrk->SetLineWidth(2);
+    hNtrkOriginal->SetLineWidth(2);
+    gStyle->SetOptStat(0); // Disable statistics box
 
-        TLegend* leg = new TLegend(0.65, 0.75, 0.88, 0.88);
-        leg->AddEntry(&hNtrk, "highPurity", "l");
-        leg->AddEntry(&hNtrkOriginal, "original", "l");
-        leg->SetBorderSize(0);
-        leg->SetFillStyle(0);
-        leg->Draw();
+    TLegend* leg = new TLegend(0.65, 0.75, 0.88, 0.88);
+    leg->AddEntry(hNtrk, "highPurity", "l");
+    leg->AddEntry(hNtrkOriginal, "original", "l");
+    leg->SetBorderSize(0);
+    leg->SetFillStyle(0);
+    leg->Draw();
 
 
     TCanvas* canvas_highntrk = new TCanvas("c_highntrk", "chighntrk", 800, 800);
-    h_highntrk.SetLineColor(kBlack);
-    h_highntrk.SetLineWidth(2);
-    h_highntrk.Draw("HIST");
-    h_highntrk.SetXTitle(hvar.xLabel.c_str()); // Set the x
-    h_highntrk.SetYTitle(hvar.yLabel.c_str());
+    h_highntrk->SetLineColor(kBlack);
+    h_highntrk->SetLineWidth(2);
+    h_highntrk->Draw("HIST");
+    h_highntrk->SetXTitle(hvar.xLabel.c_str()); // Set the x
+    h_highntrk->SetYTitle(hvar.yLabel.c_str());
     DrawSelectionLatex();
 
     TCanvas* canvas_midntrk = new TCanvas("c_midntrk", "chmidntrk", 800, 800);
-    h_midntrk.SetLineColor(kBlack);
-    h_midntrk.SetLineWidth(2);
-    h_midntrk.Draw("HIST");
-    h_midntrk.SetXTitle(hvar.xLabel.c_str()); // Set the x
-    h_midntrk.SetYTitle(hvar.yLabel.c_str()); DrawSelectionLatex();
+    h_midntrk->SetLineColor(kBlack);
+    h_midntrk->SetLineWidth(2);
+    h_midntrk->Draw("HIST");
+    h_midntrk->SetXTitle(hvar.xLabel.c_str()); // Set the x
+    h_midntrk->SetYTitle(hvar.yLabel.c_str()); DrawSelectionLatex();
 
     TCanvas* canvas_lowntrk = new TCanvas("c_lowntrk", "clowntrk", 800, 800);
-    h_lowntrk.SetLineColor(kBlack);
-    h_lowntrk.SetLineWidth(2);
-    h_lowntrk.Draw("HIST");
-    h_lowntrk.SetXTitle(hvar.xLabel.c_str()); // Set the x
-    h_lowntrk.SetYTitle(hvar.yLabel.c_str());
+    h_lowntrk->SetLineColor(kBlack);
+    h_lowntrk->SetLineWidth(2);
+    h_lowntrk->Draw("HIST");
+    h_lowntrk->SetXTitle(hvar.xLabel.c_str()); // Set the x
+    h_lowntrk->SetYTitle(hvar.yLabel.c_str());
     DrawSelectionLatex();
-
 
    // canvas->SetLogy(); // Set log scale if specified
     canvas->SaveAs(hvar.outFileName.c_str());
@@ -311,7 +332,8 @@ int run() {
     c_ntrk->SaveAs("Plots/NumberOfTracksCDF.png");
     canvas_highntrk->SaveAs("Plots/JetAJ_HighNtrk.png");
     canvas_lowntrk->SaveAs("Plots/JetAJ_LowNtrk.png");
-    canvas_midntrk->SaveAs("Plots/JetAJ_MidNtrk.png");
+    canvas_midntrk->SaveAs("Plots/JetAJ_MidNtrk.png");*/
+    delete outFile_p;
 
     return 0;
 }
